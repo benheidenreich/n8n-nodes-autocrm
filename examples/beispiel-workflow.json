@@ -1,0 +1,120 @@
+{
+	"name": "autocrm Beispiel: Lead anlegen und zuweisen",
+	"nodes": [
+		{
+			"parameters": {
+				"content": "## autocrm Beispiel-Workflow\n\n**⚠️ Der obere Zweig erzeugt beim Ausführen einen ECHTEN Lead!**\n\nVorher ersetzen (Werte nennt der autocrm-Support):\n- `BRANCH_ID` → eure Niederlassungs-ID\n- `CATEGORY` → gültiger Kategoriename bzw. Pfad `PARENT|CHILD`\n- `SOURCE_NAME` → gültige Quelle\n- Employee Email → **externe** Autohaus-Adresse des Mitarbeiters (nicht die autocrm-Login-Adresse!)\n\nDie zwei losgelösten Nodes unten sind harmlose Einzelbeispiele:\n- **Exists** ist rein lesend — ideal als erster Verbindungstest.\n- **Attach Email** zeigt den Raw-EML-Modus (dokumentiert nur, versendet nichts).",
+				"height": 420,
+				"width": 480
+			},
+			"id": "sticky-01",
+			"name": "Sticky Note",
+			"type": "n8n-nodes-base.stickyNote",
+			"typeVersion": 1,
+			"position": [-260, -180]
+		},
+		{
+			"parameters": {},
+			"id": "trigger-01",
+			"name": "When clicking \"Execute workflow\"",
+			"type": "n8n-nodes-base.manualTrigger",
+			"typeVersion": 1,
+			"position": [280, 0]
+		},
+		{
+			"parameters": {
+				"resource": "lead",
+				"operation": "create",
+				"contactId": "CRM-0001",
+				"lastName": "Mustermann",
+				"email": "max.mustermann@example.com",
+				"branchId": "BRANCH_ID",
+				"category": "CATEGORY",
+				"firstContactChannel": "E-Mail",
+				"source": "SOURCE_NAME",
+				"noteTitle": "Nachricht des Kunden",
+				"noteContent": "Bitte um ein Angebot.",
+				"additionalContactFields": {
+					"firstName": "Max",
+					"phone": "+496301708123456"
+				},
+				"additionalLeadFields": {},
+				"vehicle": {}
+			},
+			"id": "autocrm-create-01",
+			"name": "Lead anlegen",
+			"type": "@benheidenreich/n8n-nodes-autocrm.autoCrm",
+			"typeVersion": 1,
+			"position": [500, 0]
+		},
+		{
+			"parameters": {
+				"resource": "lead",
+				"operation": "assign",
+				"leadId": "={{ $json[\"id-anfrage\"] }}",
+				"assignTo": "employee",
+				"employeeEmail": "verkaeufer@autohaus.example",
+				"branchId": "",
+				"category": ""
+			},
+			"id": "autocrm-assign-01",
+			"name": "Lead zuweisen",
+			"type": "@benheidenreich/n8n-nodes-autocrm.autoCrm",
+			"typeVersion": 1,
+			"position": [720, 0]
+		},
+		{
+			"parameters": {
+				"resource": "lead",
+				"operation": "exists",
+				"leadId": 12345
+			},
+			"id": "autocrm-exists-01",
+			"name": "Exists (harmloser Lesetest)",
+			"type": "@benheidenreich/n8n-nodes-autocrm.autoCrm",
+			"typeVersion": 1,
+			"position": [500, 260]
+		},
+		{
+			"parameters": {
+				"resource": "lead",
+				"operation": "attachEmail",
+				"leadId": 12345,
+				"emlSource": "raw",
+				"emlText": "MIME-Version: 1.0\nContent-Type: text/plain; charset=utf-8\nFrom: autohaus@example.com\nTo: max.mustermann@example.com\nDate: Mon, 24 Aug 2026 12:00:00 +0200\nSubject: Ihre Anfrage\n\nGuten Tag, vielen Dank für Ihre Anfrage. Wir melden uns."
+			},
+			"id": "autocrm-attach-01",
+			"name": "Attach Email (Raw-EML-Beispiel)",
+			"type": "@benheidenreich/n8n-nodes-autocrm.autoCrm",
+			"typeVersion": 1,
+			"position": [720, 260]
+		}
+	],
+	"connections": {
+		"When clicking \"Execute workflow\"": {
+			"main": [
+				[
+					{
+						"node": "Lead anlegen",
+						"type": "main",
+						"index": 0
+					}
+				]
+			]
+		},
+		"Lead anlegen": {
+			"main": [
+				[
+					{
+						"node": "Lead zuweisen",
+						"type": "main",
+						"index": 0
+					}
+				]
+			]
+		}
+	},
+	"active": false,
+	"settings": {},
+	"pinData": {}
+}

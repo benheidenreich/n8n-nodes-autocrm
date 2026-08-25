@@ -1,0 +1,51 @@
+name: Publish to npm
+
+# Publishes the package to npm with a provenance statement whenever a GitHub
+# Release is published. n8n requires verified community nodes to be published
+# via GitHub Actions with provenance (mandatory since 2026-05-01).
+#
+# --- Tokenless (Trusted Publishing / OIDC) ---
+# Publishing is fully tokenless: no NPM_TOKEN secret is used. Authentication to
+# the registry happens via the OIDC id-token minted for this workflow run
+# (id-token: write below). Provenance is produced automatically.
+#
+# Prerequisite (configured once on npmjs.com, keep it in sync with this file):
+#   npmjs.com -> package "@benheidenreich/n8n-nodes-autocrm" -> Settings
+#   -> Trusted Publisher -> GitHub Actions
+#      repo     = benheidenreich/n8n-nodes-autocrm
+#      workflow = publish.yml
+#      allowed action = npm publish   (NOT "npm stage publish")
+# If you ever rename this file, change the repo, or move the job to a different
+# workflow, update the Trusted Publisher config to match or publishing will fail
+# with "action not allowed".
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # required for npm provenance / trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22' # >= 22.14 required for OIDC trusted publishing
+          registry-url: 'https://registry.npmjs.org'
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - run: npm run lint
+
+      # npm >= 11.5.1 for provenance / trusted publishing
+      - run: npm install -g npm@latest
+
+      - name: Publish (tokenless, provenance)
+        run: npm publish --provenance --access public
