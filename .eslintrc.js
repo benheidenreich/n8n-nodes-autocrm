@@ -29,15 +29,19 @@ module.exports = {
 				// Only applicable to nodes in the n8n main repository; community
 				// packages must use a full HTTP documentation URL instead
 				'n8n-nodes-base/cred-class-field-documentation-url-miscased': 'off',
-				// The brand is officially spelled lowercase ("autocrm"); the rule
-				// would force the display name to the incorrect "Autocrm API"
-				'n8n-nodes-base/cred-class-field-display-name-miscased': 'off',
 			},
 		},
 		{
 			files: ['./nodes/**/*.ts'],
 			plugins: ['eslint-plugin-n8n-nodes-base'],
 			extends: ['plugin:n8n-nodes-base/nodes'],
+			rules: {
+				// These two demand the string literal "main", while the verification
+				// gate (@n8n/scan-community-package) requires NodeConnectionTypes.Main
+				// and switches them off for that reason — mirrored here
+				'n8n-nodes-base/node-class-description-inputs-wrong-regular-node': 'off',
+				'n8n-nodes-base/node-class-description-outputs-wrong': 'off',
+			},
 		},
 	],
 };

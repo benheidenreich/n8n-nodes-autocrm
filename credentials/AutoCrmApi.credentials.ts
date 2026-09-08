@@ -1,10 +1,14 @@
-import type { ICredentialType, INodeProperties } from 'n8n-workflow';
+import type { Icon, ICredentialType, INodeProperties } from 'n8n-workflow';
 
 export class AutoCrmApi implements ICredentialType {
 	name = 'autoCrmApi';
 
-	// The brand is officially spelled lowercase; see .eslintrc.js for the disabled casing rule
-	displayName = 'autocrm API';
+	// The brand is officially spelled lowercase, but n8n's community node scan
+	// requires title case for credential display names
+	displayName = 'Autocrm API';
+
+	// Kept next to this file because credential icons resolve relative to it
+	icon: Icon = 'file:autocrm.svg';
 
 	// The official API3 documentation (PDF) is not public; this points to the vendor page
 	documentationUrl = 'https://www.autocrm.de/';
