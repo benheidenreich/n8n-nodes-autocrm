@@ -24,7 +24,7 @@
 	"engines": {
 		"node": ">=18.10"
 	},
-	"main": "index.js",
+	"main": "dist/nodes/AutoCrm/AutoCrm.node.js",
 	"scripts": {
 		"build": "tsc && node scripts/copy-assets.js",
 		"dev": "tsc --watch",
@@ -36,6 +36,9 @@
 	"files": [
 		"dist"
 	],
+	"publishConfig": {
+		"access": "public"
+	},
 	"n8n": {
 		"n8nNodesApiVersion": 1,
 		"credentials": [
