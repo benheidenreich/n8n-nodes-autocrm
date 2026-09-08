@@ -66,6 +66,17 @@ A typical outbound pipeline:
 
 Assigning without an employee email (Assign To: Team) assigns the lead to the responsible **team** of the branch and category — it does not mean "unchanged".
 
+### API field names of the ID parameters
+
+The node's parameter descriptions stay free of the raw API field names; this is where they are documented:
+
+| Node parameter | autocrm API field |
+|---|---|
+| Lead ID | `id-anfrage` |
+| Contact ID | `x-id-kontakt` |
+| External Lead ID | `x-id-anfrage` |
+| Vehicle → Vehicle ID | `x-id-fahrzeug` |
+
 ### Contact upsert semantics (Create)
 
 `Contact ID` (`x-id-kontakt`) is the ID of the contact in **your** system and acts as an upsert key. If autocrm already knows the ID, the lead is attached to the existing contact and all other contact fields are silently ignored (except License Plate). Check `neuer-kontakt` in the output: `false` for an ID you just generated means the ID collided with an existing contact.
@@ -93,4 +104,5 @@ An importable example workflow is included in [`examples/beispiel-workflow.json`
 
 ## Version history
 
+- **0.1.1** — Compliance with n8n's community node verification scan: credential icon and title-cased credential display name, `NodeConnectionTypes.Main` instead of the `"main"` literal, all errors surfaced as `NodeApiError`/`NodeOperationError`, `sleep` from `n8n-workflow` instead of `setTimeout`. The API field names moved from the parameter descriptions into this README.
 - **0.1.0** — Initial release: Lead Create, Assign, Attach Email, Add Note and Exists; manual 308 redirect handling with credential preservation; per-user request serialization; automatic retries with Retry-After; programmatic credential test.

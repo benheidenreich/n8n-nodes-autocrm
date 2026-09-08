@@ -10,7 +10,7 @@ import type {
 	INodeTypeDescription,
 	JsonObject,
 } from 'n8n-workflow';
-import { NodeApiError, NodeOperationError } from 'n8n-workflow';
+import { NodeApiError, NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
 import type { AutoCrmCredentials } from './transport';
 import { AutoCrmApiError, autoCrmRequest, MAX_BASE64_CHARS } from './transport';
@@ -38,8 +38,19 @@ async function autoCrmApiCall(
 				itemIndex,
 			});
 		}
-		throw error;
+		throw new NodeOperationError(this.getNode(), error as Error, { itemIndex });
 	}
+}
+
+// Errors coming out of the operation handlers are already NodeApiError or
+// NodeOperationError and only need the item index attached; anything else is
+// unexpected and gets wrapped so n8n can display it with item context.
+function withItemIndex(node: INode, error: unknown, itemIndex: number): Error {
+	if (error instanceof NodeApiError || error instanceof NodeOperationError) {
+		if (error.context) error.context.itemIndex = itemIndex;
+		return error;
+	}
+	return new NodeOperationError(node, error as Error, { itemIndex });
 }
 
 // autocrm timestamps are Text(19) like "2021-06-22 14:33:21" in German local time (CET/CEST)
@@ -169,8 +180,8 @@ export class AutoCrm implements INodeType {
 			name: 'autocrm',
 		},
 		usableAsTool: true,
-		inputs: ['main'],
-		outputs: ['main'],
+		inputs: [NodeConnectionTypes.Main],
+		outputs: [NodeConnectionTypes.Main],
 		credentials: [
 			{
 				name: 'autoCrmApi',
@@ -253,9 +264,8 @@ export class AutoCrm implements INodeType {
 						operation: ['addNote', 'assign', 'attachEmail', 'exists'],
 					},
 				},
-				// eslint-disable-next-line n8n-nodes-base/node-param-description-miscased-id -- "id-anfrage" is the literal autocrm field name
 				description:
-					'Numeric ID of the lead in autocrm, as returned in "id-anfrage" by the Create operation',
+					'Numeric ID of the lead in autocrm, as returned by the Create operation. See the README for the autocrm API field names.',
 			},
 
 			// ----------------------------------
@@ -273,9 +283,8 @@ export class AutoCrm implements INodeType {
 						operation: ['create'],
 					},
 				},
-				// eslint-disable-next-line n8n-nodes-base/node-param-description-miscased-id -- "x-id-kontakt" is the literal autocrm field name
 				description:
-					'Unique ID of the contact in YOUR system (autocrm field "x-id-kontakt"). Acts as an upsert key: if autocrm already knows a contact with this ID, the lead is attached to that contact and all other contact fields are ignored (except License Plate). Check "neuer-kontakt" in the output to see whether a new contact was created.',
+					'Unique ID of the contact in YOUR system. Acts as an upsert key: if autocrm already knows a contact with this ID, the lead is attached to that contact and all other contact fields are ignored (except License Plate). Check "neuer-kontakt" in the output to see whether a new contact was created.',
 			},
 			{
 				displayName: 'Last Name',
@@ -571,8 +580,7 @@ export class AutoCrm implements INodeType {
 						name: 'externalLeadId',
 						type: 'string',
 						default: '',
-						// eslint-disable-next-line n8n-nodes-base/node-param-description-miscased-id -- "x-id-anfrage" is the literal autocrm field name
-						description: 'ID of the lead in your own system (autocrm field "x-id-anfrage")',
+						description: 'ID of the lead in your own system',
 					},
 					{
 						displayName: 'External Lead ID Type',
@@ -669,9 +677,8 @@ export class AutoCrm implements INodeType {
 						name: 'vehicleId',
 						type: 'string',
 						default: '',
-						// eslint-disable-next-line n8n-nodes-base/node-param-description-miscased-id -- "x-id-fahrzeug" is the literal autocrm field name
 						description:
-							'ID of the vehicle in your own system (autocrm field "x-id-fahrzeug"). If autocrm already knows this ID, the existing vehicle is linked and Description is ignored.',
+							'ID of the vehicle in your own system. If autocrm already knows this ID, the existing vehicle is linked and Description is ignored.',
 					},
 				],
 			},
@@ -1182,11 +1189,7 @@ export class AutoCrm implements INodeType {
 					returnData.push({ json: { error: error.message }, pairedItem: { item: i } });
 					continue;
 				}
-				if (error.context) {
-					error.context.itemIndex = i;
-					throw error;
-				}
-				throw new NodeOperationError(this.getNode(), error, { itemIndex: i });
+				throw withItemIndex(this.getNode(), error, i);
 			}
 		}
 

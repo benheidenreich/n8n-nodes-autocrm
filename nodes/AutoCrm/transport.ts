@@ -1,4 +1,5 @@
 import type { IDataObject } from 'n8n-workflow';
+import { sleep } from 'n8n-workflow';
 
 // Transport layer for the autocrm API3. Deliberately free of n8n runtime types and
 // error classes so it can be exercised standalone (see the mock test harness);
@@ -39,6 +40,16 @@ export class AutoCrmApiError extends Error {
 	}
 }
 
+// Network-level rejections from fetch (DNS, TLS, timeouts) carry no API detail;
+// this normalizes them into the same error type the rest of the module uses,
+// which AutoCrm.node.ts then surfaces as a NodeApiError
+function asTransportError(error: unknown, startUrl: string): AutoCrmApiError {
+	if (error instanceof AutoCrmApiError) return error;
+	return new AutoCrmApiError(
+		`Could not reach the autocrm API at ${startUrl}: ${(error as Error).message}`,
+	);
+}
+
 // The redirect target may be used directly for subsequent requests (spec section 1.7.4)
 const redirectTargetCache = new Map<string, string>();
 // autocrm allows only ONE request at a time per API user; this serializes requests
@@ -62,12 +73,6 @@ async function runSerialized<T>(key: string, task: () => Promise<T>): Promise<T>
 		),
 	);
 	return run;
-}
-
-function sleep(ms: number): Promise<void> {
-	return new Promise((resolve) => {
-		setTimeout(resolve, ms);
-	});
 }
 
 function parseRetryAfterMs(headerValue: string | null): number | undefined {
@@ -255,11 +260,7 @@ export async function autoCrmRequest(
 			try {
 				return await fetchWithManualRedirects(startUrl, headers, bodyText);
 			} catch (error) {
-				if (error instanceof AutoCrmApiError) throw error;
-				throw new AutoCrmApiError(
-					`Could not reach the autocrm API at ${startUrl}: ${(error as Error).message}`,
-					{},
-				);
+				throw asTransportError(error, startUrl);
 			}
 		};
 

@@ -14,7 +14,9 @@ function copyAssets(srcDir, destDir) {
 	}
 }
 
-copyAssets(path.join(__dirname, '..', 'nodes'), path.join(__dirname, '..', 'dist', 'nodes'));
+for (const dir of ['nodes', 'credentials']) {
+	copyAssets(path.join(__dirname, '..', dir), path.join(__dirname, '..', 'dist', dir));
+}
 
 // tsc copies package.json into dist because it is listed in tsconfig "include"
 // (needed there only for typed linting) — it does not belong in the build output
