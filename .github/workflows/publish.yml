@@ -49,10 +49,3 @@ jobs:
 
       - name: Publish (tokenless, provenance)
         run: npm publish --provenance --access public
-        env:
-          # TEMPORARY — bootstrap only. A trusted publisher cannot be configured
-          # for a package that does not exist on the registry yet, so the very
-          # first publish authenticates with a granular access token instead.
-          # Remove this env block (and the NPM_TOKEN secret) once the trusted
-          # publisher is set up on npmjs.com; provenance works either way.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

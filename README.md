@@ -83,7 +83,31 @@ The node's parameter descriptions stay free of the raw API field names; this is 
 
 ### Rate limits and serialization
 
-autocrm enforces per-function throughput limits (Create 3/60s; Assign, Attach Email and Add Note 5/60s; Exists 150/60s) and allows only one request at a time per API user. The node serializes its requests per credential within one n8n process and automatically retries temporary errors (HTTP 429/503, `fehler_parallel`, `fehler_mengengeruest`, `fehler_tmp`) up to two times, honoring the `Retry-After` header (capped at 30 s per wait). For bulk imports, slow the workflow down (e.g. Loop Over Items with a Wait node) — the Create limit of 3 per 60 seconds is the bottleneck.
+autocrm enforces throughput limits per function and allows only one request at a time per API user:
+
+| Operation | Limit |
+|---|---|
+| Create | 3 / 60 s |
+| Assign, Attach Email, Add Note | 5 / 60 s each |
+| Exists | 150 / 60 s |
+
+The node serializes its requests per credential within one n8n process and automatically retries temporary errors (HTTP 429/503, `fehler_parallel`, `fehler_mengengeruest`, `fehler_tmp`) up to two times, honoring the `Retry-After` header (capped at 30 s per wait). For bulk imports, slow the workflow down (e.g. Loop Over Items with a Wait node) — the Create limit of 3 per 60 seconds is the bottleneck.
+
+Note that the serialization is per process: with n8n in queue mode across several workers, or several n8n instances sharing one API user, the retries are what catch `fehler_parallel`. Use one API user per n8n installation.
+
+### Error statuses
+
+A call counts as successful only when it returns HTTP 2xx **and** `status: "OK"` — the node checks both.
+
+| Status error | Meaning |
+|---|---|
+| `fehler_parallel` | Another request of the same API user was already running — the node has already retried automatically |
+| `fehler_mengengeruest` | Throughput limit exceeded → slow the workflow down |
+| `fehler_tmp` | Temporary condition, e.g. a phone call is in progress on the lead → retry later |
+| `fehler_input:<detail>:<field>` | Input error, e.g. `id_unbekannt:data.id-anfrage` (unknown lead ID) or `unbekannt:data.email` (no unique external employee address for that branch and category) |
+| `fehler_berechtigung` | The API user is not allowed to call this function → contact autocrm support |
+| `fehler_wartungsarbeiten` | Maintenance window → retry later |
+| HTTP 401 | Wrong credentials. The server answers with HTML instead of JSON here; the node detects that and reports it properly. |
 
 ### Transport notes
 
