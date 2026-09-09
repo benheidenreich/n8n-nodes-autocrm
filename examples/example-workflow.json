@@ -1,9 +1,9 @@
 {
-	"name": "autocrm Beispiel: Lead anlegen und zuweisen",
+	"name": "autocrm example: create and assign a lead",
 	"nodes": [
 		{
 			"parameters": {
-				"content": "## autocrm Beispiel-Workflow\n\n**⚠️ Der obere Zweig erzeugt beim Ausführen einen ECHTEN Lead!**\n\nVorher ersetzen (Werte nennt der autocrm-Support):\n- `BRANCH_ID` → eure Niederlassungs-ID\n- `CATEGORY` → gültiger Kategoriename bzw. Pfad `PARENT|CHILD`\n- `SOURCE_NAME` → gültige Quelle\n- Employee Email → **externe** Autohaus-Adresse des Mitarbeiters (nicht die autocrm-Login-Adresse!)\n\nDie zwei losgelösten Nodes unten sind harmlose Einzelbeispiele:\n- **Exists** ist rein lesend — ideal als erster Verbindungstest.\n- **Attach Email** zeigt den Raw-EML-Modus (dokumentiert nur, versendet nichts).",
+				"content": "## autocrm example workflow\n\n**⚠️ Running the upper branch creates a REAL lead!**\n\nReplace first (autocrm support provides the values):\n- `BRANCH_ID` → your branch ID\n- `CATEGORY` → a valid category name or path `PARENT|CHILD`\n- `SOURCE_NAME` → a valid source\n- Employee Email → the employee's **external** dealership address (not their autocrm login!)\n\nThe two detached nodes below are harmless standalone examples:\n- **Exists** is read-only — ideal as a first connectivity test.\n- **Attach Email** shows the raw EML mode (it only documents, it sends nothing).",
 				"height": 420,
 				"width": 480
 			},
@@ -32,8 +32,8 @@
 				"category": "CATEGORY",
 				"firstContactChannel": "E-Mail",
 				"source": "SOURCE_NAME",
-				"noteTitle": "Nachricht des Kunden",
-				"noteContent": "Bitte um ein Angebot.",
+				"noteTitle": "Message from the customer",
+				"noteContent": "Please send me a quote.",
 				"additionalContactFields": {
 					"firstName": "Max",
 					"phone": "+496301708123456"
@@ -42,7 +42,7 @@
 				"vehicle": {}
 			},
 			"id": "autocrm-create-01",
-			"name": "Lead anlegen",
+			"name": "Create lead",
 			"type": "@benheidenreich/n8n-nodes-autocrm.autoCrm",
 			"typeVersion": 1,
 			"position": [500, 0]
@@ -53,12 +53,12 @@
 				"operation": "assign",
 				"leadId": "={{ $json[\"id-anfrage\"] }}",
 				"assignTo": "employee",
-				"employeeEmail": "verkaeufer@autohaus.example",
+				"employeeEmail": "salesperson@dealership.example",
 				"branchId": "",
 				"category": ""
 			},
 			"id": "autocrm-assign-01",
-			"name": "Lead zuweisen",
+			"name": "Assign lead",
 			"type": "@benheidenreich/n8n-nodes-autocrm.autoCrm",
 			"typeVersion": 1,
 			"position": [720, 0]
@@ -70,7 +70,7 @@
 				"leadId": 12345
 			},
 			"id": "autocrm-exists-01",
-			"name": "Exists (harmloser Lesetest)",
+			"name": "Exists (harmless read-only test)",
 			"type": "@benheidenreich/n8n-nodes-autocrm.autoCrm",
 			"typeVersion": 1,
 			"position": [500, 260]
@@ -81,10 +81,10 @@
 				"operation": "attachEmail",
 				"leadId": 12345,
 				"emlSource": "raw",
-				"emlText": "MIME-Version: 1.0\nContent-Type: text/plain; charset=utf-8\nFrom: autohaus@example.com\nTo: max.mustermann@example.com\nDate: Mon, 24 Aug 2026 12:00:00 +0200\nSubject: Ihre Anfrage\n\nGuten Tag, vielen Dank für Ihre Anfrage. Wir melden uns."
+				"emlText": "MIME-Version: 1.0\nContent-Type: text/plain; charset=utf-8\nFrom: dealership@example.com\nTo: max.mustermann@example.com\nDate: Mon, 24 Aug 2026 12:00:00 +0200\nSubject: Your enquiry\n\nHello, thank you for your enquiry. We will get back to you shortly."
 			},
 			"id": "autocrm-attach-01",
-			"name": "Attach Email (Raw-EML-Beispiel)",
+			"name": "Attach Email (raw EML example)",
 			"type": "@benheidenreich/n8n-nodes-autocrm.autoCrm",
 			"typeVersion": 1,
 			"position": [720, 260]
@@ -95,18 +95,18 @@
 			"main": [
 				[
 					{
-						"node": "Lead anlegen",
+						"node": "Create lead",
 						"type": "main",
 						"index": 0
 					}
 				]
 			]
 		},
-		"Lead anlegen": {
+		"Create lead": {
 			"main": [
 				[
 					{
-						"node": "Lead zuweisen",
+						"node": "Assign lead",
 						"type": "main",
 						"index": 0
 					}
