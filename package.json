@@ -1,7 +1,7 @@
 {
 	"name": "@benheidenreich/n8n-nodes-autocrm",
-	"version": "0.1.1",
-	"description": "n8n community node for autocrm (IMAGO Informationstechnologie): create leads, assign them to branches, categories and employees, attach emails and notes, and check lead existence via the autocrm API3",
+	"version": "0.2.0",
+	"description": "n8n community node for autocrm (IMAGO Informationstechnologie): create and search leads, assign them to branches, categories and employees, attach emails and notes, and check lead existence via the autocrm API3",
 	"keywords": [
 		"n8n-community-node-package",
 		"autocrm",

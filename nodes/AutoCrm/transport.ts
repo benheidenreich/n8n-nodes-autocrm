@@ -174,7 +174,7 @@ function buildStatusError(
 				httpStatus,
 				statusError,
 				description:
-					'Throughput limits per function: Create 3/60s, Assign / Attach Email / Add Note 5/60s, Exists 150/60s. The node already retried automatically; slow the workflow down, for example with a Wait node between items.',
+					'Throughput limits per function: Create 3/60s, Search 4/60s, Assign / Attach Email / Add Note 5/60s, Exists 150/60s. The node already retried automatically; slow the workflow down, for example with a Wait node between items.',
 			});
 		case 'fehler_tmp':
 			return new AutoCrmApiError(

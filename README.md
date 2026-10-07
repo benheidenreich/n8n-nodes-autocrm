@@ -2,7 +2,7 @@
 
 This is an n8n community node. It lets you use [autocrm](https://www.autocrm.de) in your n8n workflows.
 
-autocrm is a lead management CRM for automotive dealerships by IMAGO Informationstechnologie GmbH. This node talks to the autocrm API3 (version 3.5) to create leads, assign them to branches, categories and employees, and to document emails and notes in the lead history.
+autocrm is a lead management CRM for automotive dealerships by IMAGO Informationstechnologie GmbH. This node talks to the autocrm API3 (version 3.5) to create leads, search lead IDs by branch, time, vehicle or milestone, assign leads to branches, categories and employees, and to document emails and notes in the lead history.
 
 [n8n](https://n8n.io/) is a [fair-code licensed](https://docs.n8n.io/reference/license/) workflow automation platform.
 
@@ -44,8 +44,8 @@ npm pack     # → benheidenreich-n8n-nodes-autocrm-<version>.tgz
 Copy it to the server, then install it **as the `node` user** — installing as root causes permission problems later:
 
 ```bash
-docker cp benheidenreich-n8n-nodes-autocrm-0.1.1.tgz n8n:/tmp/
-docker exec -it -u node n8n sh -c "mkdir -p /home/node/.n8n/nodes && cd /home/node/.n8n/nodes && npm install /tmp/benheidenreich-n8n-nodes-autocrm-0.1.1.tgz"
+docker cp benheidenreich-n8n-nodes-autocrm-0.2.0.tgz n8n:/tmp/
+docker exec -it -u node n8n sh -c "mkdir -p /home/node/.n8n/nodes && cd /home/node/.n8n/nodes && npm install /tmp/benheidenreich-n8n-nodes-autocrm-0.2.0.tgz"
 docker restart n8n
 ```
 
@@ -133,6 +133,24 @@ Checks whether a lead exists and, if it was merged away, which lead its content 
 - `existiert` — `1`/`0`, within the API user's permissions.
 - `weitergefuehrt-in` — if the lead was deleted by a **merge**, this holds the ID of the successor lead, which is how you find relocated leads again. Otherwise `null`.
 
+### Search (`AnfragenListeIDs`)
+
+Finds the IDs of the leads that match the filters and outputs **one item per lead**, as `{ "id-anfrage": 1234567 }` — ready to feed into Exists, Assign, Attach Email or Add Note. Read-only, 4 calls per 60 seconds.
+
+All filters are optional; each one narrows the result further:
+
+| Filter | Meaning |
+|---|---|
+| Branch ID | Only leads assigned to this branch. Added to the API in the specification of 2026-09-25 |
+| Created From / Created Until | Creation time window. "Until" includes that whole second |
+| Changed From / Changed Until | Change time window. "Until" includes that whole second |
+| Vehicle ID | Only leads linked to the vehicle with this ID from your own system |
+| Milestone | Only leads on which the milestone with this name is set |
+
+- The answer contains lead IDs only — no contact, vehicle or history data.
+- If nothing matches, the node outputs **no items** and that branch of the workflow stops. Enable **Always Output Data** in the node settings if it should continue anyway.
+- Without filters the search is not restricted at all, which can mean a long list on a large tenant. Narrow it down, for example with a creation time window.
+
 ## Credentials
 
 You need an API user for the autocrm API3. Credentials (username and password for HTTP Basic Auth) are issued by autocrm support; the valid values for branch IDs, sources and categories are tenant-specific and also come from support.
@@ -148,7 +166,7 @@ The credential test performs a real, read-only API call (`AnfrageVorhanden` for 
 ## Compatibility
 
 - Requires n8n running on Node.js 18.10 or newer (the node uses native `fetch`). Any n8n image from roughly version 1.0 onwards satisfies this.
-- Implements autocrm API3, interface version 3.5.
+- Implements autocrm API3, interface version 3.5 (specification as of 2026-09-25).
 - No runtime dependencies.
 
 ## Usage
@@ -179,6 +197,8 @@ The node's parameter descriptions stay free of the raw API field names; this is 
 | Contact ID | `x-id-kontakt` |
 | External Lead ID | `x-id-anfrage` |
 | Vehicle → Vehicle ID | `x-id-fahrzeug` |
+| Search → Filters → Branch ID | `id-niederlassung` |
+| Search → Filters → Vehicle ID | `x-id-fahrzeug` |
 
 ### Contact upsert semantics (Create)
 
@@ -195,6 +215,7 @@ autocrm enforces throughput limits per function and allows only one request at a
 | Operation | Limit |
 |---|---|
 | Create | 3 / 60 s |
+| Search | 4 / 60 s |
 | Assign, Attach Email, Add Note | 5 / 60 s each |
 | Exists | 150 / 60 s |
 
@@ -220,7 +241,7 @@ A call counts as successful only when it returns HTTP 2xx **and** `status: "OK"`
 
 - The autocrm API normally answers with an HTTP 308 redirect to another subdomain. The node follows redirects manually so that method, body and the `Authorization` header survive, and remembers the redirect target for subsequent requests.
 - The node performs its HTTP requests with native `fetch` and therefore does **not** use n8n's proxy settings (`HTTP_PROXY`). The n8n host needs direct outbound HTTPS access to `www.autocrm.de` and its sibling subdomains (e.g. `www2.autocrm.de`).
-- Timestamps (Process From/By, Close By) are converted to German local time (Europe/Berlin) in the format autocrm expects. Phone numbers must be in international format (`+496301708123456`); common separators are stripped automatically.
+- Timestamps (Process From/By, Close By, the Search time filters) are converted to German local time (Europe/Berlin) in the format autocrm expects. Phone numbers must be in international format (`+496301708123456`); common separators are stripped automatically.
 
 ### Use as an AI Agent tool
 
@@ -239,5 +260,6 @@ An importable example workflow is included in [`examples/example-workflow.json`]
 
 ## Version history
 
+- **0.2.0** — New **Search** operation (`AnfragenListeIDs`): lead IDs filtered by branch, creation and change time, vehicle and milestone, one output item per lead. The branch filter is new in the API3 specification of 2026-09-25.
 - **0.1.1** — Compliance with n8n's community node verification scan: credential icon and title-cased credential display name, `NodeConnectionTypes.Main` instead of the `"main"` literal, all errors surfaced as `NodeApiError`/`NodeOperationError`, `sleep` from `n8n-workflow` instead of `setTimeout`. The API field names moved from the parameter descriptions into this README.
 - **0.1.0** — Initial release: Lead Create, Assign, Attach Email, Add Note and Exists; manual 308 redirect handling with credential preservation; per-user request serialization; automatic retries with Retry-After; programmatic credential test.
