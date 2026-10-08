@@ -167,6 +167,20 @@ const PHONE_FIELD_LABELS: Record<string, string> = {
 	phone: 'Phone',
 };
 
+// n8n filter name -> autocrm field name for the search (AnfragenListeIDs)
+const SEARCH_TEXT_FILTER_MAP: Record<string, string> = {
+	branchId: 'id-niederlassung',
+	milestone: 'meilenstein-gesetzt',
+	vehicleId: 'x-id-fahrzeug',
+};
+
+const SEARCH_TIMESTAMP_FILTERS: Array<[string, string, string]> = [
+	['createdFrom', 'erzeugt-von', 'Created From'],
+	['createdUntil', 'erzeugt-bis', 'Created Until'],
+	['changedFrom', 'geaendert-von', 'Changed From'],
+	['changedUntil', 'geaendert-bis', 'Changed Until'],
+];
+
 export class AutoCrm implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'autocrm',
@@ -244,6 +258,13 @@ export class AutoCrm implements INodeType {
 						value: 'exists',
 						description: 'Check whether a lead exists and where it was merged to',
 						action: 'Check whether a lead exists',
+					},
+					{
+						name: 'Search',
+						value: 'search',
+						description:
+							'Find the IDs of leads by branch, creation or change time, vehicle or milestone',
+						action: 'Search leads',
 					},
 				],
 				default: 'create',
@@ -906,6 +927,77 @@ export class AutoCrm implements INodeType {
 					},
 				],
 			},
+
+			// ----------------------------------
+			//     lead: search
+			// ----------------------------------
+			{
+				displayName: 'Filters',
+				name: 'filters',
+				type: 'collection',
+				placeholder: 'Add Filter',
+				default: {},
+				displayOptions: {
+					show: {
+						resource: ['lead'],
+						operation: ['search'],
+					},
+				},
+				description:
+					'All filters are optional and each one narrows the result further. The output contains one item per matching lead ID.',
+				options: [
+					{
+						displayName: 'Branch ID',
+						name: 'branchId',
+						type: 'string',
+						default: '',
+						description:
+							'Only leads assigned to this autocrm branch (Niederlassung). The valid values are tenant-specific — ask autocrm support.',
+					},
+					{
+						displayName: 'Changed From',
+						name: 'changedFrom',
+						type: 'dateTime',
+						default: '',
+						description: 'Only leads changed at or after this time',
+					},
+					{
+						displayName: 'Changed Until',
+						name: 'changedUntil',
+						type: 'dateTime',
+						default: '',
+						description: 'Only leads changed at or before this time, including that whole second',
+					},
+					{
+						displayName: 'Created From',
+						name: 'createdFrom',
+						type: 'dateTime',
+						default: '',
+						description: 'Only leads created at or after this time',
+					},
+					{
+						displayName: 'Created Until',
+						name: 'createdUntil',
+						type: 'dateTime',
+						default: '',
+						description: 'Only leads created at or before this time, including that whole second',
+					},
+					{
+						displayName: 'Milestone',
+						name: 'milestone',
+						type: 'string',
+						default: '',
+						description: 'Only leads on which the milestone with this name is set',
+					},
+					{
+						displayName: 'Vehicle ID',
+						name: 'vehicleId',
+						type: 'string',
+						default: '',
+						description: 'Only leads linked to the vehicle with this ID from your own system',
+					},
+				],
+			},
 		],
 	};
 
@@ -962,6 +1054,29 @@ export class AutoCrm implements INodeType {
 						i,
 					);
 					returnData.push({ json: responseData, pairedItem: { item: i } });
+					continue;
+				}
+
+				if (resource === 'lead' && operation === 'search') {
+					const node = this.getNode();
+					const filters = this.getNodeParameter('filters', i, {}) as IDataObject;
+					const body: IDataObject = {};
+					for (const [uiName, apiName] of Object.entries(SEARCH_TEXT_FILTER_MAP)) {
+						const value = String(filters[uiName] ?? '').trim();
+						if (value !== '') body[apiName] = value;
+					}
+					for (const [uiName, apiName, label] of SEARCH_TIMESTAMP_FILTERS) {
+						const rawValue = String(filters[uiName] ?? '').trim();
+						if (rawValue === '') continue;
+						body[apiName] = toApiTimestamp(node, i, label, rawValue);
+					}
+					const responseData = await autoCrmApiCall.call(this, 'AnfragenListeIDs', body, i);
+					const leadIds = responseData['liste-id-anfrage'];
+					if (Array.isArray(leadIds)) {
+						for (const leadId of leadIds) {
+							returnData.push({ json: { 'id-anfrage': leadId }, pairedItem: { item: i } });
+						}
+					}
 					continue;
 				}
 

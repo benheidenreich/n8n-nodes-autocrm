@@ -2,7 +2,7 @@
 // kein Kontakt zur echten autocrm-API. Getestet werden die Transport-Schicht
 // (308-Redirect + Auth-Erhalt, Redirect-Cache samt Fallback, Retries mit
 // Retry-After, Mutex-Serialisierung, Fehler-Mapping) und die execute()-Zweige
-// aller 5 Operationen gegen lokale HTTP-Server.
+// aller 6 Operationen gegen lokale HTTP-Server.
 //
 // Aufruf: npm test   (baut dist/ und führt diese Datei aus)
 import { createServer } from 'node:http';
@@ -650,6 +650,60 @@ await testCase('n11) continueOnFail turns errors into items with pairedItem', as
 	});
 	assert.match(String(output[0][0].json.error), /positive whole number/);
 	assert.deepEqual(output[0][0].pairedItem, { item: 0 });
+});
+
+await testCase('n12) search maps all filters incl. branch and splits IDs into items', async () => {
+	const { output, state } = await runOperation({
+		operation: 'search',
+		params: {
+			filters: {
+				branchId: 'BRANCH_ID',
+				createdFrom: '2026-03-20T11:00:00.000Z',
+				createdUntil: '2026-07-01T15:00:00.000Z',
+				changedFrom: '2026-03-21T11:00:00.000Z',
+				changedUntil: '',
+				vehicleId: 'V-1',
+				milestone: 'Angebot',
+			},
+		},
+		serverData: { 'liste-id-anfrage': [1234567, 3456789] },
+	});
+	const parsed = JSON.parse(state.requests[0].body);
+	assert.equal(parsed.function, 'AnfragenListeIDs');
+	assert.deepEqual(parsed.data, {
+		'id-niederlassung': 'BRANCH_ID',
+		'meilenstein-gesetzt': 'Angebot',
+		'x-id-fahrzeug': 'V-1',
+		'erzeugt-von': '2026-03-20 12:00:00',
+		'erzeugt-bis': '2026-07-01 17:00:00',
+		'geaendert-von': '2026-03-21 12:00:00',
+	});
+	assert.deepEqual(
+		output[0].map((item) => item.json),
+		[{ 'id-anfrage': 1234567 }, { 'id-anfrage': 3456789 }],
+	);
+	assert.deepEqual(
+		output[0].map((item) => item.pairedItem),
+		[{ item: 0 }, { item: 0 }],
+	);
+});
+
+await testCase('n13) search without filters sends empty data; empty result yields no items', async () => {
+	const { output, state } = await runOperation({
+		operation: 'search',
+		params: {},
+		serverData: { 'liste-id-anfrage': [] },
+	});
+	const parsed = JSON.parse(state.requests[0].body);
+	assert.deepEqual(parsed.data, {});
+	assert.deepEqual(output, [[]]);
+});
+
+await testCase('n14) search rejects an invalid date before any request', async () => {
+	await assert.rejects(
+		runOperation({ operation: 'search', params: { filters: { createdFrom: 'yesterday-ish' } } }),
+		/"Created From" is not a valid date/,
+	);
 });
 
 // ---------- summary ----------
