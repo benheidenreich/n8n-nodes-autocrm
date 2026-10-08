@@ -2,7 +2,7 @@
 // kein Kontakt zur echten autocrm-API. Getestet werden die Transport-Schicht
 // (308-Redirect + Auth-Erhalt, Redirect-Cache samt Fallback, Retries mit
 // Retry-After, Mutex-Serialisierung, Fehler-Mapping) und die execute()-Zweige
-// aller 6 Operationen gegen lokale HTTP-Server.
+// aller 7 Operationen gegen lokale HTTP-Server.
 //
 // Aufruf: npm test   (baut dist/ und führt diese Datei aus)
 import { createServer } from 'node:http';
@@ -704,6 +704,43 @@ await testCase('n14) search rejects an invalid date before any request', async (
 		runOperation({ operation: 'search', params: { filters: { createdFrom: 'yesterday-ish' } } }),
 		/"Created From" is not a valid date/,
 	);
+});
+
+await testCase('n15) get passes the details through unchanged, incl. a chat history entry', async () => {
+	const details = {
+		anfrage: {
+			'id-anfrage': 12345,
+			titel: 'Probefahrt',
+			status: 'in Bearbeitung',
+			'id-niederlassung': 'BRANCH_ID',
+			kategorie: 'Fahrzeuganfragen|Neuwagen',
+		},
+		kontakt: { 'id-kontakt': '121234', 'x-id-kontakt': 'CRM-0001', name: 'Meier' },
+		meilensteine: [{ name: 'Vorqualifizierung', 'gesetzt-am': '2023-07-20 12:42:28' }],
+		verlauf: [
+			{
+				typ: 'chat',
+				zeit: '2023-07-22 14:00:00',
+				data: {
+					titel: 'Chat',
+					chatverlauf: [
+						{ cvtyp: 'text', richtung: 'gesendet', zeit: '2023-07-22 13:02:00', text: 'Guten Tag' },
+					],
+				},
+			},
+		],
+	};
+	const { output, state } = await runOperation({
+		operation: 'get',
+		params: { leadId: 12345 },
+		serverData: details,
+	});
+	const parsed = JSON.parse(state.requests[0].body);
+	assert.equal(parsed.function, 'AnfrageDetails');
+	assert.deepEqual(parsed.data, { 'id-anfrage': 12345 });
+	assert.equal(output[0].length, 1);
+	assert.deepEqual(output[0][0].json, details);
+	assert.deepEqual(output[0][0].pairedItem, { item: 0 });
 });
 
 // ---------- summary ----------
