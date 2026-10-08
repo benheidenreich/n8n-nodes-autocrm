@@ -2,7 +2,7 @@
 
 This is an n8n community node. It lets you use [autocrm](https://www.autocrm.de) in your n8n workflows.
 
-autocrm is a lead management CRM for automotive dealerships by IMAGO Informationstechnologie GmbH. This node talks to the autocrm API3 (version 3.5) to create leads, search lead IDs by branch, time, vehicle or milestone, assign leads to branches, categories and employees, and to document emails and notes in the lead history.
+autocrm is a lead management CRM for automotive dealerships by IMAGO Informationstechnologie GmbH. This node talks to the autocrm API3 (version 3.5) to create leads, search lead IDs by branch, time, vehicle or milestone, read a lead's details and history, assign leads to branches, categories and employees, and to document emails and notes in the lead history.
 
 [n8n](https://n8n.io/) is a [fair-code licensed](https://docs.n8n.io/reference/license/) workflow automation platform.
 
@@ -44,8 +44,8 @@ npm pack     # → benheidenreich-n8n-nodes-autocrm-<version>.tgz
 Copy it to the server, then install it **as the `node` user** — installing as root causes permission problems later:
 
 ```bash
-docker cp benheidenreich-n8n-nodes-autocrm-0.2.0.tgz n8n:/tmp/
-docker exec -it -u node n8n sh -c "mkdir -p /home/node/.n8n/nodes && cd /home/node/.n8n/nodes && npm install /tmp/benheidenreich-n8n-nodes-autocrm-0.2.0.tgz"
+docker cp benheidenreich-n8n-nodes-autocrm-0.3.0.tgz n8n:/tmp/
+docker exec -it -u node n8n sh -c "mkdir -p /home/node/.n8n/nodes && cd /home/node/.n8n/nodes && npm install /tmp/benheidenreich-n8n-nodes-autocrm-0.3.0.tgz"
 docker restart n8n
 ```
 
@@ -133,6 +133,34 @@ Checks whether a lead exists and, if it was merged away, which lead its content 
 - `existiert` — `1`/`0`, within the API user's permissions.
 - `weitergefuehrt-in` — if the lead was deleted by a **merge**, this holds the ID of the successor lead, which is how you find relocated leads again. Otherwise `null`.
 
+### Get (`AnfrageDetails`)
+
+Returns everything autocrm exposes about one lead, as a single item. Read-only, 150 calls per 60 seconds.
+
+| Key | Content |
+|---|---|
+| `anfrage` | Lead data: `status` (`offen`, `in Bearbeitung`, `bearbeitet` or `abgeschlossen`), `abschluss` / `subabschluss` (closing reason, e.g. `verkauft`), `abgeschlossen-seit`, `titel`, `kategorie`, `id-niederlassung`, `kuerzel-niederlassung`, `quelle`, `erstkontakt`, `bearbeiter`, `verfasser`, `bemerkungen`, `angebotspreis`, the deadlines, `eingang` (created) and `geaendert` (last change) |
+| `kontakt` | Contact data, including `id-kontakt` and `x-id-kontakt` |
+| `fahrzeug` | The linked vehicle (`x-id-fahrzeug`). **Absent** when no vehicle is linked |
+| `meilensteine` | Milestones set on the lead, each with `name` and `gesetzt-am` |
+| `verlauf` | Chronological history. Each entry has `typ`, `zeit` and a `data` object whose fields depend on the type |
+
+History entry types:
+
+| `typ` | Fields in `data` |
+|---|---|
+| `notiz` | `titel`, `inhalt` |
+| `telefonat` | `titel`, `inhalt`, `richtung`, `beschreibung`, `klingeldauer` and `gespraechsdauer` (seconds), `aufzeichnung` |
+| `email` | `header` (`Subject`, `From`, `To`, `Cc`, `Bcc`, `Date`, `Message-Id`), `richtung`, `kurzfassung` (cleaned and shortened excerpt), `groesse` (bytes) |
+| `termin` | `titel`, `inhalt`, `beginn`, `ende` |
+| `chat` | `titel` and `chatverlauf`, the list of messages: `cvtyp` (`text`, `image`, `audio`, `video`, `document`, or `unknown` for WhatsApp types autocrm does not know yet), `richtung` (`empfangen` / `gesendet`), `zeit`, and depending on the type `text`, `untertitel` or `dateiname`. New in the specification of 2026-09-25 |
+| `anfrage` | A related lead: `id-anfrage`, `titel`, `kategorie`, `bearbeiter`, `id-niederlassung` |
+| `log` | `titel`, `inhalt` |
+
+- The answer is passed through unchanged; timestamps keep autocrm's format (`2023-07-20 12:42:28`, German local time).
+- Only text comes back. File contents — attachments of notes and emails, chat media — are not available through the API.
+- autocrm extends this answer over time (`chat` is the latest example), so workflows should tolerate unknown history types and fields.
+
 ### Search (`AnfragenListeIDs`)
 
 Finds the IDs of the leads that match the filters and outputs **one item per lead**, as `{ "id-anfrage": 1234567 }` — ready to feed into Exists, Assign, Attach Email or Add Note. Read-only, 4 calls per 60 seconds.
@@ -147,7 +175,8 @@ All filters are optional; each one narrows the result further:
 | Vehicle ID | Only leads linked to the vehicle with this ID from your own system |
 | Milestone | Only leads on which the milestone with this name is set |
 
-- The answer contains lead IDs only — no contact, vehicle or history data.
+- The answer contains lead IDs only — no contact, vehicle or history data. Use **Get** for those.
+- There is no status filter; autocrm does not offer one. See [Filtering leads by status](#filtering-leads-by-status).
 - If nothing matches, the node outputs **no items** and that branch of the workflow stops. Enable **Always Output Data** in the node settings if it should continue anyway.
 - Without filters the search is not restricted at all, which can mean a long list on a large tenant. Narrow it down, for example with a creation time window.
 
@@ -177,6 +206,16 @@ A typical outbound pipeline:
 2. Send the confirmation email to the customer with n8n's **Send Email** node (autocrm has no API function for sending).
 3. **Attach Email** to document that email in the lead history (from a binary `.eml` field, or as raw RFC 822 text that the node base64-encodes).
 4. **Assign** the lead to the responsible employee or team.
+
+### Filtering leads by status
+
+autocrm's search has no status filter. Combine the operations instead:
+
+1. **Search** with the filters autocrm does support, e.g. Branch ID and a Created From window — one item per lead.
+2. **Get** for each item, with Lead ID set to `{{ $json["id-anfrage"] }}`.
+3. n8n's **Filter** node on `{{ $json.anfrage.status }}`, e.g. *is equal to* `offen`.
+
+Get allows 150 calls per 60 seconds. Narrow the search first; for more leads than that, put Get into Loop Over Items with a Wait node.
 
 ### The two email address traps
 
@@ -217,7 +256,7 @@ autocrm enforces throughput limits per function and allows only one request at a
 | Create | 3 / 60 s |
 | Search | 4 / 60 s |
 | Assign, Attach Email, Add Note | 5 / 60 s each |
-| Exists | 150 / 60 s |
+| Exists, Get | 150 / 60 s each |
 
 The node serializes its requests per credential within one n8n process and automatically retries temporary errors (HTTP 429/503, `fehler_parallel`, `fehler_mengengeruest`, `fehler_tmp`) up to two times, honoring the `Retry-After` header (capped at 30 s per wait). For bulk imports, slow the workflow down (e.g. Loop Over Items with a Wait node) — the Create limit of 3 per 60 seconds is the bottleneck.
 
@@ -260,6 +299,7 @@ An importable example workflow is included in [`examples/example-workflow.json`]
 
 ## Version history
 
+- **0.3.0** — New **Get** operation (`AnfrageDetails`): lead data including status and closing reason, contact, vehicle, milestones and the full history, including the `chat` history type added in the API3 specification of 2026-09-25. Together with Search this allows filtering leads by status.
 - **0.2.0** — New **Search** operation (`AnfragenListeIDs`): lead IDs filtered by branch, creation and change time, vehicle and milestone, one output item per lead. The branch filter is new in the API3 specification of 2026-09-25.
 - **0.1.1** — Compliance with n8n's community node verification scan: credential icon and title-cased credential display name, `NodeConnectionTypes.Main` instead of the `"main"` literal, all errors surfaced as `NodeApiError`/`NodeOperationError`, `sleep` from `n8n-workflow` instead of `setTimeout`. The API field names moved from the parameter descriptions into this README.
 - **0.1.0** — Initial release: Lead Create, Assign, Attach Email, Add Note and Exists; manual 308 redirect handling with credential preservation; per-user request serialization; automatic retries with Retry-After; programmatic credential test.

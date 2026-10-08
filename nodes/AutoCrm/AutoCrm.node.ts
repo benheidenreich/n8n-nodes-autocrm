@@ -260,6 +260,13 @@ export class AutoCrm implements INodeType {
 						action: 'Check whether a lead exists',
 					},
 					{
+						name: 'Get',
+						value: 'get',
+						description:
+							'Get the details of a lead: lead data including status, contact, vehicle, milestones and history',
+						action: 'Get a lead',
+					},
+					{
 						name: 'Search',
 						value: 'search',
 						description:
@@ -282,7 +289,7 @@ export class AutoCrm implements INodeType {
 				displayOptions: {
 					show: {
 						resource: ['lead'],
-						operation: ['addNote', 'assign', 'attachEmail', 'exists'],
+						operation: ['addNote', 'assign', 'attachEmail', 'exists', 'get'],
 					},
 				},
 				description:
@@ -1050,6 +1057,18 @@ export class AutoCrm implements INodeType {
 					const responseData = await autoCrmApiCall.call(
 						this,
 						'AnfrageVorhanden',
+						{ 'id-anfrage': leadId },
+						i,
+					);
+					returnData.push({ json: responseData, pairedItem: { item: i } });
+					continue;
+				}
+
+				if (resource === 'lead' && operation === 'get') {
+					const leadId = getLeadId(this, i);
+					const responseData = await autoCrmApiCall.call(
+						this,
+						'AnfrageDetails',
 						{ 'id-anfrage': leadId },
 						i,
 					);
