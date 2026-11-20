@@ -130,7 +130,7 @@ await testCase('a+b) 308 chain keeps method, body, Authorization; target is cach
 		assert.equal(req.headers.authorization, EXPECTED_AUTH);
 		assert.equal(req.headers['content-type'], 'application/json');
 		const parsed = JSON.parse(body);
-		assert.equal(parsed.version, '3.5');
+		assert.equal(parsed.version, '3.6');
 		assert.equal(parsed.function, 'AnfrageVorhanden');
 		assert.deepEqual(parsed.data, { 'id-anfrage': 7 });
 		okJson(res, { existiert: 1, 'weitergefuehrt-in': null });
@@ -450,7 +450,7 @@ await testCase('n1) create: full body mapping incl. phone + timestamp + vehicle'
 		},
 	});
 	const parsed = JSON.parse(state.requests[0].body);
-	assert.equal(parsed.version, '3.5');
+	assert.equal(parsed.version, '3.6');
 	assert.equal(parsed.function, 'NeueAnfrage');
 	assert.deepEqual(parsed.data.kontakt, {
 		'x-id-kontakt': 'CRM-0001',
@@ -741,6 +741,92 @@ await testCase('n15) get passes the details through unchanged, incl. a chat hist
 	assert.equal(output[0].length, 1);
 	assert.deepEqual(output[0][0].json, details);
 	assert.deepEqual(output[0][0].pairedItem, { item: 0 });
+});
+
+const CREATE_BASE_PARAMS = {
+	contactId: 'CRM-0004',
+	lastName: 'Mustermann',
+	email: 'a@example.com',
+	branchId: 'BRANCH_ID',
+	category: 'CATEGORY',
+	firstContactChannel: 'E-Mail',
+	source: 'SOURCE_NAME',
+	noteTitle: 'Customer message',
+	noteContent: 'Please call me back.',
+	additionalContactFields: {},
+	additionalLeadFields: {},
+	vehicle: {},
+};
+
+await testCase('n16) create sends additional notes after the first one, skipping empty entries', async () => {
+	const { state } = await runOperation({
+		operation: 'create',
+		serverData: { 'id-anfrage': 124, 'id-kontakt': 457 },
+		params: {
+			...CREATE_BASE_PARAMS,
+			additionalNotes: {
+				note: [
+					{ title: 'Trade-in', content: 'Golf VII, 2017, 98000 km' },
+					{ title: '', content: '  ' },
+					{ title: ' Financing ', content: 'Wants a leasing offer' },
+				],
+			},
+		},
+	});
+	const parsed = JSON.parse(state.requests[0].body);
+	assert.deepEqual(parsed.data.verlauf, [
+		{ typ: 'notiz', data: { titel: 'Customer message', inhalt: 'Please call me back.' } },
+		{ typ: 'notiz', data: { titel: 'Trade-in', inhalt: 'Golf VII, 2017, 98000 km' } },
+		{ typ: 'notiz', data: { titel: 'Financing', inhalt: 'Wants a leasing offer' } },
+	]);
+});
+
+await testCase('n17) create rejects an additional note with only a title before the request', async () => {
+	await assert.rejects(
+		runOperation({
+			operation: 'create',
+			params: {
+				...CREATE_BASE_PARAMS,
+				additionalNotes: { note: [{ title: 'Trade-in', content: '' }] },
+			},
+		}),
+		/Additional note 1 needs both a title and a content/,
+	);
+});
+
+await testCase('n18) search sends the status filter as a list, also from a comma-separated string', async () => {
+	const { state } = await runOperation({
+		operation: 'search',
+		params: { filters: { branchId: 'BRANCH_ID', status: ['offen', 'in Bearbeitung'] } },
+		serverData: { 'liste-id-anfrage': [1234567] },
+	});
+	assert.deepEqual(JSON.parse(state.requests[0].body).data, {
+		'id-niederlassung': 'BRANCH_ID',
+		'status-oderliste': ['offen', 'in Bearbeitung'],
+	});
+
+	const fromExpression = await runOperation({
+		operation: 'search',
+		params: { filters: { status: 'bearbeitet, abgeschlossen,bearbeitet' } },
+		serverData: { 'liste-id-anfrage': [] },
+	});
+	assert.deepEqual(JSON.parse(fromExpression.state.requests[0].body).data, {
+		'status-oderliste': ['bearbeitet', 'abgeschlossen'],
+	});
+
+	const emptySelection = await runOperation({
+		operation: 'search',
+		params: { filters: { status: [] } },
+		serverData: { 'liste-id-anfrage': [] },
+	});
+	assert.deepEqual(JSON.parse(emptySelection.state.requests[0].body).data, {});
+});
+
+await testCase('n19) search rejects an unknown status before any request', async () => {
+	await assert.rejects(
+		runOperation({ operation: 'search', params: { filters: { status: ['open'] } } }),
+		/"open" is not a valid lead status/,
+	);
 });
 
 // ---------- summary ----------

@@ -181,6 +181,47 @@ const SEARCH_TIMESTAMP_FILTERS: Array<[string, string, string]> = [
 	['changedUntil', 'geaendert-bis', 'Changed Until'],
 ];
 
+// the lead statuses autocrm accepts in the search filter (API 3.6)
+const LEAD_STATUSES = ['offen', 'in Bearbeitung', 'bearbeitet', 'abgeschlossen'];
+
+// Accepts the multiOptions array as well as a comma-separated string from an expression;
+// the spec forbids an empty list, so no selection returns an empty array and the key is omitted
+function getStatusFilter(node: INode, itemIndex: number, raw: unknown): string[] {
+	const values = (Array.isArray(raw) ? raw : String(raw ?? '').split(','))
+		.map((value) => String(value).trim())
+		.filter((value) => value !== '');
+	for (const value of values) {
+		if (!LEAD_STATUSES.includes(value)) {
+			throw new NodeOperationError(node, `"${value}" is not a valid lead status`, {
+				itemIndex,
+				description: `Allowed values: ${LEAD_STATUSES.join(', ')}`,
+			});
+		}
+	}
+	return [...new Set(values)];
+}
+
+// Additional history notes for Create; entries whose title and content are both empty are
+// skipped so optional expression-filled entries do not break the call
+function getAdditionalNotes(node: INode, itemIndex: number, raw: IDataObject): IDataObject[] {
+	const entries = (raw.note as IDataObject[] | undefined) ?? [];
+	const verlauf: IDataObject[] = [];
+	entries.forEach((entry, index) => {
+		const titel = String(entry.title ?? '').trim();
+		const inhalt = String(entry.content ?? '').trim();
+		if (titel === '' && inhalt === '') return;
+		if (titel === '' || inhalt === '') {
+			throw new NodeOperationError(
+				node,
+				`Additional note ${index + 1} needs both a title and a content`,
+				{ itemIndex },
+			);
+		}
+		verlauf.push({ typ: 'notiz', data: { titel, inhalt } });
+	});
+	return verlauf;
+}
+
 export class AutoCrm implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'autocrm',
@@ -270,7 +311,7 @@ export class AutoCrm implements INodeType {
 						name: 'Search',
 						value: 'search',
 						description:
-							'Find the IDs of leads by branch, creation or change time, vehicle or milestone',
+							'Find the IDs of leads by branch, status, creation or change time, vehicle or milestone',
 						action: 'Search leads',
 					},
 				],
@@ -455,6 +496,49 @@ export class AutoCrm implements INodeType {
 					},
 				},
 				description: 'Text of the history note, for example the customer message',
+			},
+			{
+				displayName: 'Additional Notes',
+				name: 'additionalNotes',
+				type: 'fixedCollection',
+				typeOptions: {
+					multipleValues: true,
+				},
+				placeholder: 'Add History Note',
+				default: {},
+				displayOptions: {
+					show: {
+						resource: ['lead'],
+						operation: ['create'],
+					},
+				},
+				description:
+					'Further notes added to the lead history in the same call, after the note above and in this order. Entries with an empty title and content are skipped.',
+				options: [
+					{
+						name: 'note',
+						displayName: 'Note',
+						values: [
+							{
+								displayName: 'Content',
+								name: 'content',
+								type: 'string',
+								typeOptions: {
+									rows: 4,
+								},
+								default: '',
+								description: 'Text of the history note',
+							},
+							{
+								displayName: 'Title',
+								name: 'title',
+								type: 'string',
+								default: '',
+								description: 'Title of the history note',
+							},
+						],
+					},
+				],
 			},
 			{
 				displayName: 'Additional Contact Fields',
@@ -997,6 +1081,31 @@ export class AutoCrm implements INodeType {
 						description: 'Only leads on which the milestone with this name is set',
 					},
 					{
+						displayName: 'Status',
+						name: 'status',
+						type: 'multiOptions',
+						options: [
+							{
+								name: 'Closed',
+								value: 'abgeschlossen',
+							},
+							{
+								name: 'In Progress',
+								value: 'in Bearbeitung',
+							},
+							{
+								name: 'Open',
+								value: 'offen',
+							},
+							{
+								name: 'Processed',
+								value: 'bearbeitet',
+							},
+						],
+						default: [],
+						description: 'Only leads whose status is one of the selected ones',
+					},
+					{
 						displayName: 'Vehicle ID',
 						name: 'vehicleId',
 						type: 'string',
@@ -1089,6 +1198,8 @@ export class AutoCrm implements INodeType {
 						if (rawValue === '') continue;
 						body[apiName] = toApiTimestamp(node, i, label, rawValue);
 					}
+					const statuses = getStatusFilter(node, i, filters.status);
+					if (statuses.length > 0) body['status-oderliste'] = statuses;
 					const responseData = await autoCrmApiCall.call(this, 'AnfragenListeIDs', body, i);
 					const leadIds = responseData['liste-id-anfrage'];
 					if (Array.isArray(leadIds)) {
@@ -1283,14 +1394,18 @@ export class AutoCrm implements INodeType {
 						anfrage[apiName] = toApiTimestamp(node, i, label, rawValue);
 					}
 
-					// --- history note ---
+					// --- history notes ---
 					const noteTitle = getRequiredString(this, 'noteTitle', 'Note Title', i);
 					const noteContent = getRequiredString(this, 'noteContent', 'Note Content', i);
+					const additionalNotes = this.getNodeParameter('additionalNotes', i, {}) as IDataObject;
 
 					const body: IDataObject = {
 						kontakt: pruneEmpty(kontakt),
 						anfrage: pruneEmpty(anfrage),
-						verlauf: [{ typ: 'notiz', data: { titel: noteTitle, inhalt: noteContent } }],
+						verlauf: [
+							{ typ: 'notiz', data: { titel: noteTitle, inhalt: noteContent } },
+							...getAdditionalNotes(node, i, additionalNotes),
+						],
 					};
 
 					// --- vehicle ---

@@ -2,7 +2,7 @@
 
 This is an n8n community node. It lets you use [autocrm](https://www.autocrm.de) in your n8n workflows.
 
-autocrm is a lead management CRM for automotive dealerships by IMAGO Informationstechnologie GmbH. This node talks to the autocrm API3 (version 3.5) to create leads, search lead IDs by branch, time, vehicle or milestone, read a lead's details and history, assign leads to branches, categories and employees, and to document emails and notes in the lead history.
+autocrm is a lead management CRM for automotive dealerships by IMAGO Informationstechnologie GmbH. This node talks to the autocrm API3 (version 3.6) to create leads, search lead IDs by branch, status, time, vehicle or milestone, read a lead's details and history, assign leads to branches, categories and employees, and to document emails and notes in the lead history.
 
 [n8n](https://n8n.io/) is a [fair-code licensed](https://docs.n8n.io/reference/license/) workflow automation platform.
 
@@ -44,8 +44,8 @@ npm pack     # → benheidenreich-n8n-nodes-autocrm-<version>.tgz
 Copy it to the server, then install it **as the `node` user** — installing as root causes permission problems later:
 
 ```bash
-docker cp benheidenreich-n8n-nodes-autocrm-0.3.0.tgz n8n:/tmp/
-docker exec -it -u node n8n sh -c "mkdir -p /home/node/.n8n/nodes && cd /home/node/.n8n/nodes && npm install /tmp/benheidenreich-n8n-nodes-autocrm-0.3.0.tgz"
+docker cp benheidenreich-n8n-nodes-autocrm-0.4.0.tgz n8n:/tmp/
+docker exec -it -u node n8n sh -c "mkdir -p /home/node/.n8n/nodes && cd /home/node/.n8n/nodes && npm install /tmp/benheidenreich-n8n-nodes-autocrm-0.4.0.tgz"
 docker restart n8n
 ```
 
@@ -84,6 +84,8 @@ All operations act on the **Lead** resource. Every request goes to the same endp
 Creates the lead **and** its contact in a single call. Throughput limit: **3 per 60 seconds** — the bottleneck for bulk imports.
 
 Required: Contact ID, Last Name, at least one of Email / Phone / Mobile, Branch ID, Category, First Contact Channel, Source, Note Title, Note Content.
+
+**Additional Notes** adds further history notes in the same call, after the first note and in the order given — for example the customer message, the trade-in vehicle and the financing wish as separate entries. Each entry needs a title and a content; entries where both are empty are skipped, so entries filled from optional form fields do not break the call. If Lead Title is empty, autocrm takes the title of the first note.
 
 **Vehicle** may only be filled when the category is configured as a vehicle lead in autocrm; for LMS categories the object must be omitted. If autocrm already knows the vehicle ID, the existing vehicle is linked and Description is ignored. Both vehicle fields are required together.
 
@@ -170,13 +172,14 @@ All filters are optional; each one narrows the result further:
 | Filter | Meaning |
 |---|---|
 | Branch ID | Only leads assigned to this branch. Added to the API in the specification of 2026-09-25 |
+| Status | Only leads whose status is one of the selected ones: Open (`offen`), In Progress (`in Bearbeitung`), Processed (`bearbeitet`), Closed (`abgeschlossen`). Sent as `status-oderliste`; added to the API in version 3.6 (specification of 2026-11-03) |
 | Created From / Created Until | Creation time window. "Until" includes that whole second |
 | Changed From / Changed Until | Change time window. "Until" includes that whole second |
 | Vehicle ID | Only leads linked to the vehicle with this ID from your own system |
 | Milestone | Only leads on which the milestone with this name is set |
 
 - The answer contains lead IDs only — no contact, vehicle or history data. Use **Get** for those.
-- There is no status filter; autocrm does not offer one. See [Filtering leads by status](#filtering-leads-by-status).
+- Status also accepts an expression: an array or a comma-separated string of the autocrm values, e.g. `offen,in Bearbeitung`. Unknown values are rejected before the request. See [Filtering leads by status](#filtering-leads-by-status).
 - If nothing matches, the node outputs **no items** and that branch of the workflow stops. Enable **Always Output Data** in the node settings if it should continue anyway.
 - Without filters the search is not restricted at all, which can mean a long list on a large tenant. Narrow it down, for example with a creation time window.
 
@@ -195,7 +198,7 @@ The credential test performs a real, read-only API call (`AnfrageVorhanden` for 
 ## Compatibility
 
 - Requires n8n running on Node.js 18.10 or newer (the node uses native `fetch`). Any n8n image from roughly version 1.0 onwards satisfies this.
-- Implements autocrm API3, interface version 3.5 (specification as of 2026-09-25).
+- Implements autocrm API3, interface version 3.6 (specification as of 2026-11-03). Every request sends version `3.6`.
 - No runtime dependencies.
 
 ## Usage
@@ -209,11 +212,13 @@ A typical outbound pipeline:
 
 ### Filtering leads by status
 
-autocrm's search has no status filter. Combine the operations instead:
+Since API version 3.6, **Search** filters by status directly: select one or more statuses under Filters → Status, combined with the other filters, e.g. Branch ID and a Created From window.
 
-1. **Search** with the filters autocrm does support, e.g. Branch ID and a Created From window — one item per lead.
+To filter by something the search does not offer — for example the closing reason `abschluss` — combine the operations:
+
+1. **Search** with the filters autocrm does support — one item per lead.
 2. **Get** for each item, with Lead ID set to `{{ $json["id-anfrage"] }}`.
-3. n8n's **Filter** node on `{{ $json.anfrage.status }}`, e.g. *is equal to* `offen`.
+3. n8n's **Filter** node on the field, e.g. `{{ $json.anfrage.abschluss }}` *is equal to* `verkauft`.
 
 Get allows 150 calls per 60 seconds. Narrow the search first; for more leads than that, put Get into Loop Over Items with a Wait node.
 
@@ -299,6 +304,7 @@ An importable example workflow is included in [`examples/example-workflow.json`]
 
 ## Version history
 
+- **0.4.0** — API version 3.6 (specification of 2026-11-03). **Create** takes **Additional Notes**: several history notes in one call instead of only one. **Search** gets a **Status** filter (`status-oderliste`, new in 3.6) for open, in-progress, processed or closed leads.
 - **0.3.0** — New **Get** operation (`AnfrageDetails`): lead data including status and closing reason, contact, vehicle, milestones and the full history, including the `chat` history type added in the API3 specification of 2026-09-25. Together with Search this allows filtering leads by status.
 - **0.2.0** — New **Search** operation (`AnfragenListeIDs`): lead IDs filtered by branch, creation and change time, vehicle and milestone, one output item per lead. The branch filter is new in the API3 specification of 2026-09-25.
 - **0.1.1** — Compliance with n8n's community node verification scan: credential icon and title-cased credential display name, `NodeConnectionTypes.Main` instead of the `"main"` literal, all errors surfaced as `NodeApiError`/`NodeOperationError`, `sleep` from `n8n-workflow` instead of `setTimeout`. The API field names moved from the parameter descriptions into this README.
