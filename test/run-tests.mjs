@@ -566,6 +566,16 @@ await testCase('n5) assign to team omits the email key entirely', async () => {
 	assert.ok(!('email' in parsed.data), 'email key must be absent for team assignment');
 });
 
+await testCase('n5b) assign to employee with empty email only moves the category (team assignment)', async () => {
+	const { output, state } = await runOperation({
+		operation: 'assign',
+		params: { leadId: 12345, assignTo: 'employee', employeeEmail: '  ', branchId: '', category: 'Service' },
+	});
+	const parsed = JSON.parse(state.requests[0].body);
+	assert.deepEqual(parsed.data, { 'id-anfrage': 12345, kategorie: 'Service' });
+	assert.deepEqual(output[0][0].json, { success: true, 'id-anfrage': 12345 });
+});
+
 await testCase('n6) attach email from raw text is base64-encoded', async () => {
 	const eml = 'MIME-Version: 1.0\r\nFrom: a@example.com\r\nTo: b@example.com\r\nSubject: Hi\r\n\r\nHello';
 	const { state } = await runOperation({

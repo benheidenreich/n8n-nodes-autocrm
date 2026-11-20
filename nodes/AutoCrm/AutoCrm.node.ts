@@ -857,7 +857,6 @@ export class AutoCrm implements INodeType {
 				name: 'employeeEmail',
 				type: 'string',
 				placeholder: 'name@email.com',
-				required: true,
 				default: '',
 				displayOptions: {
 					show: {
@@ -867,7 +866,7 @@ export class AutoCrm implements INodeType {
 					},
 				},
 				description:
-					'The EXTERNAL email address of the employee at the dealership — not the autocrm login address. Must match exactly one employee who is a valid assignee for the branch and category of the lead.',
+					'The EXTERNAL email address of the employee at the dealership — not the autocrm login address. Must match exactly one employee who is a valid assignee for the branch and category of the lead. Leave empty to only move the lead to the branch or category: autocrm then assigns it to the responsible team, as with "Team".',
 			},
 			{
 				displayName: 'Branch ID',
@@ -899,7 +898,7 @@ export class AutoCrm implements INodeType {
 			},
 			{
 				displayName:
-					'The lead is always (re)assigned: either to the given employee, or — with "Team" — to the team responsible for the branch and category. autocrm may pick a substitute employee. This operation assigns the lead to an assignee; it does not link emails to leads.',
+					'The lead is always (re)assigned: either to the given employee, or — with "Team" or an empty Employee Email — to the team responsible for the branch and category. autocrm cannot move a lead and keep its current employee. autocrm may pick a substitute employee. This operation assigns the lead to an assignee; it does not link emails to leads.',
 				name: 'assignNotice',
 				type: 'notice',
 				default: '',
@@ -1253,8 +1252,10 @@ export class AutoCrm implements INodeType {
 					const category = String(this.getNodeParameter('category', i, '') ?? '').trim();
 					if (branchId !== '') body['id-niederlassung'] = branchId;
 					if (category !== '') body.kategorie = category;
+					// without email autocrm assigns the lead to the team of its branch and category
 					if (assignTo === 'employee') {
-						body.email = getRequiredString(this, 'employeeEmail', 'Employee Email', i);
+						const email = String(this.getNodeParameter('employeeEmail', i, '') ?? '').trim();
+						if (email !== '') body.email = email;
 					}
 					await autoCrmApiCall.call(this, 'AnfrageZuweisen', body, i);
 					returnData.push({

@@ -44,8 +44,8 @@ npm pack     # → benheidenreich-n8n-nodes-autocrm-<version>.tgz
 Copy it to the server, then install it **as the `node` user** — installing as root causes permission problems later:
 
 ```bash
-docker cp benheidenreich-n8n-nodes-autocrm-0.5.0.tgz n8n:/tmp/
-docker exec -it -u node n8n sh -c "mkdir -p /home/node/.n8n/nodes && cd /home/node/.n8n/nodes && npm install /tmp/benheidenreich-n8n-nodes-autocrm-0.5.0.tgz"
+docker cp benheidenreich-n8n-nodes-autocrm-0.5.1.tgz n8n:/tmp/
+docker exec -it -u node n8n sh -c "mkdir -p /home/node/.n8n/nodes && cd /home/node/.n8n/nodes && npm install /tmp/benheidenreich-n8n-nodes-autocrm-0.5.1.tgz"
 docker restart n8n
 ```
 
@@ -104,8 +104,9 @@ Output:
 
 Assigns a lead to a branch, category and employee or team. Despite what the API name may suggest, it does not link emails to leads.
 
-- **Assign To: Employee** — Employee Email must match exactly **one** employee who is a valid assignee for the lead's branch and category, otherwise the API returns `fehler_input:unbekannt:data.email`. See [The two email address traps](#the-two-email-address-traps).
+- **Assign To: Employee** — Employee Email must match exactly **one** employee who is a valid assignee for the lead's branch and category, otherwise the API returns `fehler_input:unbekannt:data.email`. See [The two email address traps](#the-two-email-address-traps). Employee Email is optional: left empty, it behaves like Team.
 - **Assign To: Team** — assigns to the responsible team for the branch and category. This is a real assignment, not "leave unchanged".
+- **Only moving a lead** to another category or branch: fill Category and/or Branch ID and leave the email empty (or choose Team). autocrm then assigns the lead to the team of the new category — the API cannot move a lead and keep its current employee.
 - **Branch ID / Category empty** — branch and category stay unchanged. The category must exist in the target branch.
 - The lead may end up with a **substitute** employee.
 
@@ -316,6 +317,7 @@ An importable example workflow is included in [`examples/example-workflow.json`]
 
 ## Version history
 
+- **0.5.1** — **Assign**: Employee Email is no longer required. Left empty, the lead is only moved to the given category or branch and autocrm assigns it to the responsible team, as with Assign To: Team.
 - **0.5.0** — Configurable throughput limits per API user: the credential gets one field per operation, preset to the autocrm standard (Create 3, Search 4, Assign / Attach Email / Add Note 5, Exists / Get 150 per 60 s). The node waits before a request that would exceed the limit, measured from the end of the earlier request plus a 500 ms safety margin, instead of running into `fehler_mengengeruest`.
 - **0.4.0** — API version 3.6 (specification of 2026-11-03). **Create** takes **Additional Notes**: several history notes in one call instead of only one. **Search** gets a **Status** filter (`status-oderliste`, new in 3.6) for open, in-progress, processed or closed leads.
 - **0.3.0** — New **Get** operation (`AnfrageDetails`): lead data including status and closing reason, contact, vehicle, milestones and the full history, including the `chat` history type added in the API3 specification of 2026-09-25. Together with Search this allows filtering leads by status.
