@@ -12,6 +12,8 @@ const MIN_RETRY_WAIT_MS = 1_000;
 const MAX_RETRY_WAIT_MS = 30_000;
 const DEFAULT_RETRY_WAIT_MS = 5_000;
 const REQUEST_TIMEOUT_MS = 120_000;
+// added to every throughput wait so requests at the limit stay clear of fehler_mengengeruest
+const RATE_LIMIT_MARGIN_MS = 500;
 // autocrm limit for base64 payloads (per attachment, sum of attachments and .eml files)
 export const MAX_BASE64_CHARS = 50 * 1024 * 1024;
 
@@ -19,6 +21,13 @@ export interface AutoCrmCredentials {
 	baseUrl: string;
 	username: string;
 	password: string;
+}
+
+// Throughput limit of one API function for one API user (spec section 1.5.2);
+// requests 0 disables the client-side limit
+export interface AutoCrmRateLimit {
+	requests: number;
+	intervalMs: number;
 }
 
 export class AutoCrmApiError extends Error {
@@ -55,10 +64,40 @@ const redirectTargetCache = new Map<string, string>();
 // autocrm allows only ONE request at a time per API user; this serializes requests
 // within this Node.js process (see docs for the multi-process limitation)
 const requestQueueTails = new Map<string, Promise<unknown>>();
+// End times of the latest requests per API user and function. autocrm counts the
+// server-side START of a request and leaves its runtime to the client (spec section
+// 1.5.2); measuring from the end on the client is therefore always on the safe side.
+const requestEndTimes = new Map<string, number[]>();
 
 export function clearAutoCrmRuntimeCaches(): void {
 	redirectTargetCache.clear();
 	requestQueueTails.clear();
+	requestEndTimes.clear();
+}
+
+function rateLimitWaitMs(key: string, rateLimit: AutoCrmRateLimit | undefined): number {
+	if (rateLimit === undefined || rateLimit.requests <= 0) return 0;
+	const endTimes = requestEndTimes.get(key) ?? [];
+	if (endTimes.length < rateLimit.requests) return 0;
+	// the request that would be the (requests+1)-th within the interval must wait for this one
+	const oldestInWindow = endTimes[endTimes.length - rateLimit.requests];
+	return oldestInWindow + rateLimit.intervalMs + RATE_LIMIT_MARGIN_MS - Date.now();
+}
+
+async function waitForRateLimit(key: string, rateLimit: AutoCrmRateLimit | undefined): Promise<void> {
+	for (let waitMs = rateLimitWaitMs(key, rateLimit); waitMs > 0; ) {
+		await sleep(waitMs);
+		waitMs = rateLimitWaitMs(key, rateLimit);
+	}
+}
+
+function recordRequestEnd(key: string, rateLimit: AutoCrmRateLimit | undefined): void {
+	if (rateLimit === undefined || rateLimit.requests <= 0) return;
+	const endTimes = requestEndTimes.get(key) ?? [];
+	endTimes.push(Date.now());
+	// only the latest `requests` entries are ever consulted
+	if (endTimes.length > rateLimit.requests) endTimes.splice(0, endTimes.length - rateLimit.requests);
+	requestEndTimes.set(key, endTimes);
 }
 
 async function runSerialized<T>(key: string, task: () => Promise<T>): Promise<T> {
@@ -174,7 +213,7 @@ function buildStatusError(
 				httpStatus,
 				statusError,
 				description:
-					'Throughput limits per function: Create 3/60s, Search 4/60s, Assign / Attach Email / Add Note 5/60s, Exists / Get 150/60s. The node already retried automatically; slow the workflow down, for example with a Wait node between items.',
+					'The node keeps to the throughput limits set in the credential (autocrm standard per 60 seconds: Create 3, Search 4, Assign / Attach Email / Add Note 5, Exists / Get 150) and already retried automatically. If this keeps happening, the credential allows more than autocrm grants this API user, or another system or n8n worker uses the same API user.',
 			});
 		case 'fehler_tmp':
 			return new AutoCrmApiError(
@@ -235,18 +274,23 @@ function buildStatusError(
 	}
 }
 
-// Sends one API call: serialized per API user, following redirects manually and retrying
-// temporary errors (429/503) with respect for the Retry-After header.
+// Sends one API call: within the throughput limit of the function, serialized per API user,
+// following redirects manually and retrying temporary errors (429/503) with respect for the
+// Retry-After header.
 export async function autoCrmRequest(
 	credentials: AutoCrmCredentials,
 	functionName: string,
 	data: IDataObject,
+	rateLimit?: AutoCrmRateLimit,
 ): Promise<IDataObject> {
 	const baseUrl = credentials.baseUrl.trim().replace(/\/+$/, '');
 	if (baseUrl === '') {
 		throw new AutoCrmApiError('The autocrm Base URL is empty', {});
 	}
 	const credKey = `${baseUrl}|${credentials.username}`;
+	const rateLimitKey = `${credKey}|${functionName}`;
+	// wait outside the queue first, so other functions of the same API user are not held up
+	await waitForRateLimit(rateLimitKey, rateLimit);
 	return runSerialized(credKey, async () => {
 		const bodyText = JSON.stringify({ version: API_VERSION, function: functionName, data });
 		const headers: Record<string, string> = {
@@ -265,18 +309,25 @@ export async function autoCrmRequest(
 		};
 
 		for (let attempt = 0; ; attempt++) {
+			// again inside the queue: a concurrent call of the same function may have used the slot,
+			// and retries count against the limit as well
+			await waitForRateLimit(rateLimitKey, rateLimit);
 			let response: RawResponse;
-			const cachedTarget = redirectTargetCache.get(credKey);
-			if (cachedTarget === undefined) {
-				response = await doFetch(baseUrl);
-			} else {
-				try {
-					response = await doFetch(cachedTarget);
-				} catch {
-					// the cached redirect target may have moved or gone away — fall back once
-					redirectTargetCache.delete(credKey);
+			try {
+				const cachedTarget = redirectTargetCache.get(credKey);
+				if (cachedTarget === undefined) {
 					response = await doFetch(baseUrl);
+				} else {
+					try {
+						response = await doFetch(cachedTarget);
+					} catch {
+						// the cached redirect target may have moved or gone away — fall back once
+						redirectTargetCache.delete(credKey);
+						response = await doFetch(baseUrl);
+					}
 				}
+			} finally {
+				recordRequestEnd(rateLimitKey, rateLimit);
 			}
 			if (response.finalUrl !== baseUrl) {
 				redirectTargetCache.set(credKey, response.finalUrl);
