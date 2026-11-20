@@ -5,7 +5,7 @@ import { sleep } from 'n8n-workflow';
 // error classes so it can be exercised standalone (see the mock test harness);
 // AutoCrm.node.ts translates AutoCrmApiError into NodeApiError.
 
-const API_VERSION = '3.5';
+const API_VERSION = '3.6';
 const MAX_REDIRECTS = 5;
 const MAX_RETRIES = 2;
 const MIN_RETRY_WAIT_MS = 1_000;

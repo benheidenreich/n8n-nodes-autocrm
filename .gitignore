@@ -4,3 +4,4 @@ npm-debug.log*
 .DS_Store
 *.tgz
 .claude/
+API_Beschreibung/
