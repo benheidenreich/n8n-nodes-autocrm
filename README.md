@@ -44,8 +44,8 @@ npm pack     # → benheidenreich-n8n-nodes-autocrm-<version>.tgz
 Copy it to the server, then install it **as the `node` user** — installing as root causes permission problems later:
 
 ```bash
-docker cp benheidenreich-n8n-nodes-autocrm-0.4.0.tgz n8n:/tmp/
-docker exec -it -u node n8n sh -c "mkdir -p /home/node/.n8n/nodes && cd /home/node/.n8n/nodes && npm install /tmp/benheidenreich-n8n-nodes-autocrm-0.4.0.tgz"
+docker cp benheidenreich-n8n-nodes-autocrm-0.5.0.tgz n8n:/tmp/
+docker exec -it -u node n8n sh -c "mkdir -p /home/node/.n8n/nodes && cd /home/node/.n8n/nodes && npm install /tmp/benheidenreich-n8n-nodes-autocrm-0.5.0.tgz"
 docker restart n8n
 ```
 
@@ -190,6 +190,7 @@ You need an API user for the autocrm API3. Credentials (username and password fo
 1. In n8n, create new **autocrm API** credentials.
 2. Keep the default **Base URL** (`https://www.autocrm.de/api/api3`) unless support tells you otherwise.
 3. Enter the **Username** and **Password** of the API user.
+4. Check the **throughput limits** (Create Limit … Get Limit). They are preset to the autocrm standard; if autocrm has agreed different limits for your API user, enter them here. See [Rate limits and serialization](#rate-limits-and-serialization).
 
 The credential test performs a real, read-only API call (`AnfrageVorhanden` for lead ID 1). Any JSON answer from the API proves the credentials are valid — so the message `Credentials are valid (server responded with "fehler_berechtigung")` is a **success** as well; it only means the API user is not allowed to call that particular function.
 
@@ -220,7 +221,7 @@ To filter by something the search does not offer — for example the closing rea
 2. **Get** for each item, with Lead ID set to `{{ $json["id-anfrage"] }}`.
 3. n8n's **Filter** node on the field, e.g. `{{ $json.anfrage.abschluss }}` *is equal to* `verkauft`.
 
-Get allows 150 calls per 60 seconds. Narrow the search first; for more leads than that, put Get into Loop Over Items with a Wait node.
+Get allows 150 calls per 60 seconds by default; the node waits on its own when there are more leads (see [Rate limits and serialization](#rate-limits-and-serialization)). Narrow the search first anyway.
 
 ### The two email address traps
 
@@ -254,18 +255,29 @@ An assigned `x-id-kontakt` **cannot be changed**, and there is no API function t
 
 ### Rate limits and serialization
 
-autocrm enforces throughput limits per function and allows only one request at a time per API user:
+autocrm enforces a throughput limit per API user and function, and allows only one request at a time per API user. The limits are set in the **credential**, one field per operation, preset to the autocrm standard:
 
-| Operation | Limit |
-|---|---|
-| Create | 3 / 60 s |
-| Search | 4 / 60 s |
-| Assign, Attach Email, Add Note | 5 / 60 s each |
-| Exists, Get | 150 / 60 s each |
+| Operation | Credential field | autocrm standard |
+|---|---|---|
+| Create | Create Limit | 3 / 60 s |
+| Search | Search Limit | 4 / 60 s |
+| Assign | Assign Limit | 5 / 60 s |
+| Attach Email | Attach Email Limit | 5 / 60 s |
+| Add Note | Add Note Limit | 5 / 60 s |
+| Exists (and the credential test) | Exists Limit | 150 / 60 s |
+| Get | Get Limit | 150 / 60 s |
 
-The node serializes its requests per credential within one n8n process and automatically retries temporary errors (HTTP 429/503, `fehler_parallel`, `fehler_mengengeruest`, `fehler_tmp`) up to two times, honoring the `Retry-After` header (capped at 30 s per wait). For bulk imports, slow the workflow down (e.g. Loop Over Items with a Wait node) — the Create limit of 3 per 60 seconds is the bottleneck.
+autocrm can agree individual limits per API user; enter them in the credential and every autocrm node using it follows them. `0` turns the waiting off for that operation. Credentials saved before version 0.5.0 use the standard values until they are edited.
 
-Note that the serialization is per process: with n8n in queue mode across several workers, or several n8n instances sharing one API user, the retries are what catch `fehler_parallel`. Use one API user per n8n installation.
+How the node keeps to the limits:
+
+- Before each request it checks how many requests of that function and API user it sent within the last 60 seconds. If the limit is reached, it **waits** until a slot is free instead of running into `fehler_mengengeruest` (HTTP 429). Bulk imports therefore need no Wait node; 100 Create items simply take a good half hour. Keep the workflow's execution timeout in mind.
+- autocrm counts the server-side start of a request. The node measures from the **end** of the earlier request, so the request runtime is always included, and adds a safety margin of **500 ms** on top.
+- The limits are tracked per n8n process for all executions and nodes that use the same API user, separately per function: a waiting Create does not hold up a Get.
+
+The node also serializes its requests per API user within one n8n process and automatically retries temporary errors (HTTP 429/503, `fehler_parallel`, `fehler_mengengeruest`, `fehler_tmp`) up to two times, honoring the `Retry-After` header (capped at 30 s per wait).
+
+Note that both the serialization and the throughput tracking are per process: with n8n in queue mode across several workers, or several n8n instances sharing one API user, each process counts only its own requests, and the retries are what catch `fehler_parallel` and `fehler_mengengeruest`. Use one API user per n8n installation.
 
 ### Error statuses
 
@@ -274,7 +286,7 @@ A call counts as successful only when it returns HTTP 2xx **and** `status: "OK"`
 | Status error | Meaning |
 |---|---|
 | `fehler_parallel` | Another request of the same API user was already running — the node has already retried automatically |
-| `fehler_mengengeruest` | Throughput limit exceeded → slow the workflow down |
+| `fehler_mengengeruest` | Throughput limit exceeded although the node waits for the limits → the credential allows more than autocrm grants this API user, or another system or n8n worker uses the same API user |
 | `fehler_tmp` | Temporary condition, e.g. a phone call is in progress on the lead → retry later |
 | `fehler_input:<detail>:<field>` | Input error, e.g. `id_unbekannt:data.id-anfrage` (unknown lead ID) or `unbekannt:data.email` (no unique external employee address for that branch and category) |
 | `fehler_berechtigung` | The API user is not allowed to call this function → contact autocrm support |
@@ -304,6 +316,7 @@ An importable example workflow is included in [`examples/example-workflow.json`]
 
 ## Version history
 
+- **0.5.0** — Configurable throughput limits per API user: the credential gets one field per operation, preset to the autocrm standard (Create 3, Search 4, Assign / Attach Email / Add Note 5, Exists / Get 150 per 60 s). The node waits before a request that would exceed the limit, measured from the end of the earlier request plus a 500 ms safety margin, instead of running into `fehler_mengengeruest`.
 - **0.4.0** — API version 3.6 (specification of 2026-11-03). **Create** takes **Additional Notes**: several history notes in one call instead of only one. **Search** gets a **Status** filter (`status-oderliste`, new in 3.6) for open, in-progress, processed or closed leads.
 - **0.3.0** — New **Get** operation (`AnfrageDetails`): lead data including status and closing reason, contact, vehicle, milestones and the full history, including the `chat` history type added in the API3 specification of 2026-09-25. Together with Search this allows filtering leads by status.
 - **0.2.0** — New **Search** operation (`AnfragenListeIDs`): lead IDs filtered by branch, creation and change time, vehicle and milestone, one output item per lead. The branch filter is new in the API3 specification of 2026-09-25.

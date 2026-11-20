@@ -829,6 +829,89 @@ await testCase('n19) search rejects an unknown status before any request', async
 	);
 });
 
+// ---------- throughput limit ----------
+
+await testCase('o1) rate limit: the 3rd call waits for the end of the 1st + interval + margin', async () => {
+	const arrivals = [];
+	await withServers(
+		[
+			(req, res) => {
+				arrivals.push(Date.now());
+				okJson(res, {});
+			},
+		],
+		async (srv) => {
+			const limit = { requests: 2, intervalMs: 300 };
+			await autoCrmRequest(CREDS(srv.url), 'AnfrageVorhanden', {}, limit);
+			const firstEnd = Date.now();
+			await autoCrmRequest(CREDS(srv.url), 'AnfrageVorhanden', {}, limit);
+			await autoCrmRequest(CREDS(srv.url), 'AnfrageVorhanden', {}, limit);
+			assert.ok(arrivals[1] - arrivals[0] < 250, 'the 2nd call is within the limit and must not wait');
+			const gap = arrivals[2] - firstEnd;
+			// 300 ms interval + 500 ms safety margin, measured from the END of the 1st call
+			assert.ok(gap >= 780 && gap < 1300, `3rd call arrived ${gap} ms after the 1st ended`);
+		},
+	);
+});
+
+await testCase('o2) rate limit is per function, and 0 turns it off', async () => {
+	await withServers([(req, res) => okJson(res, {})], async (srv) => {
+		const start = Date.now();
+		await autoCrmRequest(CREDS(srv.url), 'AnfrageVorhanden', {}, { requests: 1, intervalMs: 10_000 });
+		await autoCrmRequest(CREDS(srv.url), 'AnfrageDetails', {}, { requests: 1, intervalMs: 10_000 });
+		await autoCrmRequest(CREDS(srv.url), 'AnfrageVorhanden', {}, { requests: 0, intervalMs: 10_000 });
+		await autoCrmRequest(CREDS(srv.url), 'AnfrageVorhanden', {});
+		assert.ok(Date.now() - start < 1000, `took ${Date.now() - start} ms, nothing should have waited`);
+	});
+});
+
+// Runs Exists for two items and returns the gap between the two requests on the server.
+// Before the 2nd item the clock jumps 59 s ahead, so a 60 s limit leaves ~1.5 s to wait.
+async function existsGapWithClockJump(credentialFields) {
+	const realNow = Date.now;
+	let offset = 0;
+	const arrivals = [];
+	clearAutoCrmRuntimeCaches();
+	try {
+		await withServers(
+			[
+				(req, res) => {
+					arrivals.push(performance.now());
+					okJson(res, { existiert: 1 });
+				},
+			],
+			async (srv) => {
+				Date.now = () => realNow.call(Date) + offset;
+				const creds = { ...CREDS(srv.url), ...credentialFields };
+				const ctx = makeExecContext({
+					params: { resource: 'lead', operation: 'exists', leadId: 7 },
+					items: [{ json: {} }, { json: {} }],
+					creds,
+				});
+				let credentialCalls = 0;
+				ctx.getCredentials = async () => {
+					credentialCalls++;
+					if (credentialCalls === 2) offset = 59_000;
+					return creds;
+				};
+				await new AutoCrm().execute.call(ctx);
+			},
+		);
+	} finally {
+		Date.now = realNow;
+	}
+	return arrivals[1] - arrivals[0];
+}
+
+await testCase('n20) node takes the limit per operation from the credential, 60 s + margin', async () => {
+	const limited = await existsGapWithClockJump({ rateLimitExists: 1 });
+	assert.ok(limited >= 1400 && limited < 3000, `limit 1 per 60 s: gap was ${limited} ms`);
+	const otherOperation = await existsGapWithClockJump({ rateLimitExists: 2, rateLimitGet: 1 });
+	assert.ok(otherOperation < 500, `limit 2 per 60 s: gap was ${otherOperation} ms`);
+	const savedBeforeTheFields = await existsGapWithClockJump({});
+	assert.ok(savedBeforeTheFields < 500, `standard limit 150: gap was ${savedBeforeTheFields} ms`);
+});
+
 // ---------- summary ----------
 
 const failed = results.filter(([status]) => status === 'FAIL');

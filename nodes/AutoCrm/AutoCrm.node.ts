@@ -12,8 +12,33 @@ import type {
 } from 'n8n-workflow';
 import { NodeApiError, NodeConnectionTypes, NodeOperationError } from 'n8n-workflow';
 
-import type { AutoCrmCredentials } from './transport';
+import type { AutoCrmCredentials, AutoCrmRateLimit } from './transport';
 import { AutoCrmApiError, autoCrmRequest, MAX_BASE64_CHARS } from './transport';
+
+// autocrm function -> credential field with the API user's throughput limit per 60 seconds,
+// and the standard limit of the specification for credentials saved before that field existed
+const RATE_LIMITS: Record<string, [string, number]> = {
+	NeueAnfrage: ['rateLimitCreate', 3],
+	AnfragenListeIDs: ['rateLimitSearch', 4],
+	AnfrageZuweisen: ['rateLimitAssign', 5],
+	AnfrageEmail: ['rateLimitAttachEmail', 5],
+	AnfrageNotiz: ['rateLimitAddNote', 5],
+	AnfrageVorhanden: ['rateLimitExists', 150],
+	AnfrageDetails: ['rateLimitGet', 150],
+};
+
+function getRateLimit(
+	credentialData: IDataObject,
+	functionName: string,
+): AutoCrmRateLimit | undefined {
+	const entry = RATE_LIMITS[functionName];
+	if (entry === undefined) return undefined;
+	const [fieldName, standardLimit] = entry;
+	const configured = Number(credentialData[fieldName] ?? Number.NaN);
+	const requests =
+		Number.isFinite(configured) && configured >= 0 ? Math.floor(configured) : standardLimit;
+	return { requests, intervalMs: 60_000 };
+}
 
 async function autoCrmApiCall(
 	this: IExecuteFunctions,
@@ -28,7 +53,12 @@ async function autoCrmApiCall(
 		password: String(rawCredentials.password ?? ''),
 	};
 	try {
-		return await autoCrmRequest(credentials, functionName, data);
+		return await autoCrmRequest(
+			credentials,
+			functionName,
+			data,
+			getRateLimit(rawCredentials, functionName),
+		);
 	} catch (error) {
 		if (error instanceof AutoCrmApiError) {
 			throw new NodeApiError(this.getNode(), { message: error.message } as JsonObject, {
@@ -1131,7 +1161,12 @@ export class AutoCrm implements INodeType {
 				};
 				try {
 					// cheap read-only call (150/60s); any JSON answer with a status field proves valid auth
-					await autoCrmRequest(credentials, 'AnfrageVorhanden', { 'id-anfrage': 1 });
+					await autoCrmRequest(
+						credentials,
+						'AnfrageVorhanden',
+						{ 'id-anfrage': 1 },
+						getRateLimit(data, 'AnfrageVorhanden'),
+					);
 					return { status: 'OK', message: 'Authentication successful' };
 				} catch (error) {
 					if (error instanceof AutoCrmApiError) {
